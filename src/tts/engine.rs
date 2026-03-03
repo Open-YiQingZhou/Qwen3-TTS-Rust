@@ -561,6 +561,7 @@ impl TtsEngine {
             let mut full_audio = Vec::new();
             let mut state = AudioDecoder::create_state();
             let mut last_sent_frame: usize = 0; // 记录上次发送的帧位置
+            const CONTEXT_FRAMES: usize = 2; // 与发送端保持一致
 
             while let Ok((codes, is_final)) = rx.recv() {
                 let n_frames = codes.len() / 16;
@@ -575,7 +576,6 @@ impl TtsEngine {
                 let safe_codes: Vec<i64> = codes.iter().map(|&c| c.clamp(0, 2047)).collect();
                 
                 // 计算需要跳过的上下文帧数
-                const CONTEXT_FRAMES: usize = 4;
                 let skip_frames = if last_sent_frame > 0 {
                     CONTEXT_FRAMES.min(last_sent_frame)
                 } else {
@@ -617,8 +617,8 @@ impl TtsEngine {
         const SILENT_PENALTY_THRESHOLD: usize = 8; // 连续 8 帧静音后开始施加惩罚（超过句号停顿）
         const SILENT_PENALTY_VALUE: f32 = 2.0; // 静音惩罚值
         // 流式发送参数
-        const SEND_INTERVAL: usize = 8; // 每 8 帧发送一次
-        const CONTEXT_FRAMES: usize = 4; // 保留 4 帧上下文
+        const SEND_INTERVAL: usize = 4; // 每 4 帧发送一次（约 0.33 秒）
+        const CONTEXT_FRAMES: usize = 2; // 保留 2 帧上下文
         let mut consecutive_silent_frames: usize = 0;
 
         for step in 0..self.max_steps {
