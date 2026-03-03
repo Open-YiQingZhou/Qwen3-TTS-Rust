@@ -96,6 +96,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let app = Router::new()
         .route("/", get(index))
+        .route("/audio-processor.js", get(audio_processor))
         .route("/api/tts", post(tts_handler))
         .route("/api/tts/stream", get(tts_stream_handler))
         .route("/api/speakers", get(speakers_handler))
@@ -125,6 +126,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 async fn index() -> Html<&'static str> {
     Html(include_str!("../../webui/index.html"))
+}
+
+async fn audio_processor() -> &'static str {
+    include_str!("../../webui/audio-processor.js")
 }
 
 async fn health() -> &'static str {
