@@ -567,9 +567,9 @@
                 };
 
                 ws.onclose = () => {
-                    if (isStreaming) {
-                        stopStreaming();
-                    }
+                    // WebSocket 关闭时不立即停止播放
+                    // 让 AudioWorklet 继续播放缓冲区中的音频
+                    console.log('WebSocket closed, letting buffer drain...');
                 };
 
                 isStreaming = true;
