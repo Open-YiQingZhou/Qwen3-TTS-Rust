@@ -580,9 +580,8 @@ impl TtsEngine {
                     full_audio.extend(samples);
                 }
                 
-                if is_final {
-                    break;
-                }
+                // 不要在 is_final 时立即 break，让循环自然结束
+                // 因为最后一批数据已经发送了
             }
             full_audio
         });
@@ -763,12 +762,12 @@ impl TtsEngine {
             cur_pos += 1;
         }
 
-        // 发送剩余的帧
+        // 发送剩余的帧（包括正好整除的情况）
         let total_frames = all_codes.len() / 16;
         let last_sent_frame = (total_frames / SEND_INTERVAL) * SEND_INTERVAL;
         
+        // 总是发送剩余的帧（如果有）
         if total_frames > last_sent_frame {
-            // 只发送新的帧（不包含上下文）
             let start_frame = last_sent_frame;
             let end_frame = total_frames;
             
@@ -780,6 +779,9 @@ impl TtsEngine {
                 .collect();
             
             let _ = tx.send((frame_codes, true));
+        } else if total_frames == last_sent_frame && total_frames > 0 {
+            // 正好整除的情况，发送空数组标记结束
+            let _ = tx.send((Vec::new(), true));
         } else {
             let _ = tx.send((Vec::new(), true));
         }
