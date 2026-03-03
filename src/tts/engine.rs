@@ -172,6 +172,15 @@ impl TtsEngine {
         let predictor_ctx = LlamaContext::new(&predictor_model, 512, 32, 0, 4)
             .map_err(|e| format!("Failed to create Predictor context: {}", e))?;
 
+        // 6. 预加载 decoder（预热）
+        println!("Pre-loading AudioDecoder...");
+        let _decoder = AudioDecoder::load(
+            &onnx_dir
+                .join("qwen3_tts_decoder.onnx")
+                .to_string_lossy(),
+        ).map_err(|e| format!("Failed to load AudioDecoder: {}", e))?;
+        println!("AudioDecoder pre-loaded and warmed up.");
+
         println!("TtsEngine loaded successfully.");
 
         let mut engine = Self {

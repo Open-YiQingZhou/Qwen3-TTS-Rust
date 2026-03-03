@@ -503,8 +503,7 @@
                     await audioContext.resume();
                 }
                 
-                await audioContext.audioWorklet.addModule('/audio-processor.js');
-                
+                await audioContext.audioWorklet.addModule('/audio-processor.js?v=2');
                 audioWorkletNode = new AudioWorkletNode(audioContext, 'audio-processor');
                 audioWorkletNode.connect(audioContext.destination);
 
