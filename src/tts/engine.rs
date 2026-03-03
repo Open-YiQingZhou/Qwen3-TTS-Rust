@@ -594,11 +594,12 @@ impl TtsEngine {
         const SILENT_PENALTY_VALUE: f32 = 2.0; // 静音惩罚值
 
         // 流式发送参数
-        // chunk_size = 12 的原因：
+        // chunk_size = 8 的原因：
         // - decoder 需要 latent_buffer，会吞掉后面 4 帧
-        // - chunk_size = 12 时，第一个 chunk 能得到 8 帧有声音的音频（12 - 4 = 8）
-        // - 8 帧约 667ms，能顺滑接上下一个 chunk
-        const SEND_INTERVAL: usize = 12; 
+        // - chunk_size = 8 时，第一个 chunk 能得到 4 帧有声音的音频（8 - 4 = 4）
+        // - 4 帧约 333ms，能顺滑接上下一个 chunk
+        // - 发送更频繁，减少卡顿
+        const SEND_INTERVAL: usize = 8; 
         let mut consecutive_silent_frames: usize = 0;
 
         for step in 0..self.max_steps {
