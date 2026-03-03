@@ -498,54 +498,22 @@
 
                 ws.binaryType = 'arraybuffer';
 
-                let segmentIndex = 0;
-                let sendInterval;
-
-                // 按标点符号分段发送
-                // 分段规则：按句号、问号、感叹号、逗号、顿号等分割
-                const segments = text.split(/(?<=[。！？，、；：,.!?;:])/g).filter(s => s.trim());
-                if (segments.length === 0) {
-                    segments.push(text);
-                }
-
-                // 初始化进度显示
-                let sentTextContent = '';
-                document.getElementById('sentText').textContent = '';
-                document.getElementById('pendingText').textContent = text;
-
-                const sendNextSegment = () => {
-                    if (segmentIndex < segments.length) {
-                        const segment = segments[segmentIndex];
-                        ws.send(JSON.stringify({
-                            text: segment,
-                            speaker,
-                            temperature,
-                            top_k,
-                            top_p,
-                            seed,
-                        }));
-                        
-                        // 更新进度显示
-                        sentTextContent += segment;
-                        document.getElementById('sentText').textContent = sentTextContent;
-                        document.getElementById('pendingText').textContent = text.substring(sentTextContent.length);
-                        
-                        segmentIndex++;
-                    } else {
-                        // 所有段已发送，停止定时器
-                        clearInterval(sendInterval);
-                        // 发送结束信号
-                        ws.send('end');
-                    }
-                };
+                // 一次性发送所有文本
+                document.getElementById('sentText').textContent = text;
+                document.getElementById('pendingText').textContent = '';
 
                 ws.onopen = () => {
-                    // 立即发送第一段
-                    sendNextSegment();
-                    // 每 200ms 发送下一段
-                    if (segments.length > 1) {
-                        sendInterval = setInterval(sendNextSegment, 200);
-                    }
+                    // 一次性发送所有文本
+                    ws.send(JSON.stringify({
+                        text: text,
+                        speaker,
+                        temperature,
+                        top_k,
+                        top_p,
+                        seed,
+                    }));
+                    // 发送结束信号
+                    ws.send('end');
                 };
 
                 ws.onmessage = (event) => {
@@ -555,7 +523,7 @@
                         console.log('Received audio data:', float32Data.length, 'samples');
                         audioWorkletNode.port.postMessage(float32Data);
                     } else if (event.data === 'segment_done') {
-                        // 段完成信号，继续等待下一段
+                        // 段完成信号
                         console.log('Segment done');
                     } else if (event.data === 'done') {
                         // 服务端确认结束，等待缓冲区播放完毕
