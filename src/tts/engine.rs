@@ -560,8 +560,6 @@ impl TtsEngine {
             };
             let mut full_audio = Vec::new();
             let mut state = AudioDecoder::create_state();
-            let mut last_sent_frame: usize = 0; // 记录上次发送的帧位置
-            const CONTEXT_FRAMES: usize = 2; // 与发送端保持一致
 
             while let Ok((codes, is_final)) = rx.recv() {
                 let n_frames = codes.len() / 16;
@@ -575,33 +573,11 @@ impl TtsEngine {
                 // 解码整个 chunk
                 let safe_codes: Vec<i64> = codes.iter().map(|&c| c.clamp(0, 2047)).collect();
                 
-                // 计算需要跳过的上下文帧数
-                let skip_frames = if last_sent_frame > 0 {
-                    CONTEXT_FRAMES.min(last_sent_frame)
-                } else {
-                    0
-                };
-                
                 if let Ok(samples) = local_decoder.decode(&safe_codes, &mut state, is_final) {
-                    // 计算需要跳过的样本数
-                    // 每帧 2000 个样本（24000 / 12 = 2000）
-                    let samples_per_frame = 2000;
-                    let skip_samples = skip_frames * samples_per_frame;
-                    
-                    // 只发送新的音频部分
-                    let new_samples: Vec<f32> = samples
-                        .iter()
-                        .skip(skip_samples)
-                        .cloned()
-                        .collect();
-                    
                     if let Some(ref stx) = stream_tx {
-                        let _ = stx.send(new_samples.clone());
+                        let _ = stx.send(samples.clone());
                     }
-                    full_audio.extend(new_samples);
-                    
-                    // 更新已发送的帧位置
-                    last_sent_frame += n_frames - skip_frames;
+                    full_audio.extend(samples);
                 }
                 
                 if is_final {
@@ -618,7 +594,6 @@ impl TtsEngine {
         const SILENT_PENALTY_VALUE: f32 = 2.0; // 静音惩罚值
         // 流式发送参数
         const SEND_INTERVAL: usize = 4; // 每 4 帧发送一次（约 0.33 秒）
-        const CONTEXT_FRAMES: usize = 2; // 保留 2 帧上下文
         let mut consecutive_silent_frames: usize = 0;
 
         for step in 0..self.max_steps {
@@ -729,13 +704,12 @@ impl TtsEngine {
                 }
             }
 
-            // 每 8 帧发送一次，保留 4 帧上下文
+            // 每 4 帧发送一次，不包含上下文（解码器状态是连续的）
             let current_frame = (all_codes.len() / 16) as usize;
             
             if current_frame >= SEND_INTERVAL && current_frame % SEND_INTERVAL == 0 {
-                // 计算发送范围：包含前面 4 帧上下文
-                // 确保不会产生负数索引
-                let start_frame = current_frame.saturating_sub(SEND_INTERVAL + CONTEXT_FRAMES);
+                // 只发送新的帧（从上次发送位置到现在）
+                let start_frame = current_frame - SEND_INTERVAL;
                 let end_frame = current_frame;
                 
                 // 提取 codes（每帧 16 个 codes）
@@ -788,8 +762,8 @@ impl TtsEngine {
         let last_sent_frame = (total_frames / SEND_INTERVAL) * SEND_INTERVAL;
         
         if total_frames > last_sent_frame {
-            // 计算发送范围：包含前面 4 帧上下文
-            let start_frame = last_sent_frame.saturating_sub(CONTEXT_FRAMES);
+            // 只发送新的帧（不包含上下文）
+            let start_frame = last_sent_frame;
             let end_frame = total_frames;
             
             let start_idx = start_frame * 16;

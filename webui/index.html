@@ -472,6 +472,12 @@
             document.getElementById('audioContainer').classList.add('hidden');
             hideStatus();
 
+            // 按句号、问号、感叹号分段
+            const segments = text.split(/(?<=[。！？.!?])/g).filter(s => s.trim());
+            if (segments.length === 0) {
+                segments.push(text);
+            }
+
             try {
                 audioContext = new (window.AudioContext || window.webkitAudioContext)({
                     sampleRate: 24000
@@ -487,22 +493,44 @@
 
                 ws.binaryType = 'arraybuffer';
 
+                let segmentIndex = 0;
+
                 ws.onopen = () => {
+                    // 发送第一段
                     ws.send(JSON.stringify({
-                        text,
+                        text: segments[segmentIndex],
                         speaker,
                         temperature,
                         top_k,
                         top_p,
                         seed,
                     }));
+                    segmentIndex++;
                 };
 
                 ws.onmessage = (event) => {
                     if (event.data instanceof ArrayBuffer) {
+                        // 音频数据
                         const float32Data = new Float32Array(event.data);
                         audioWorkletNode.port.postMessage(float32Data);
+                    } else if (event.data === 'segment_done') {
+                        // 当前段完成，发送下一段
+                        if (segmentIndex < segments.length) {
+                            ws.send(JSON.stringify({
+                                text: segments[segmentIndex],
+                                speaker,
+                                temperature,
+                                top_k,
+                                top_p,
+                                seed,
+                            }));
+                            segmentIndex++;
+                        } else {
+                            // 所有段已发送，发送结束信号
+                            ws.send('end');
+                        }
                     } else if (event.data === 'done') {
+                        // 服务端确认结束
                         stopStreaming();
                         showStatus('流式播放完成', 'success');
                     } else {
@@ -514,6 +542,7 @@
                             }
                         } catch (e) {}
                     }
+                };
                 };
 
                 ws.onerror = (error) => {
