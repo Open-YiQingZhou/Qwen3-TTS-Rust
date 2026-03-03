@@ -284,62 +284,21 @@ async fn handle_tts_stream(mut socket: WebSocket, state: Arc<AppState>) {
             // 发送段完成信号（通过空 vec）
             let _ = audio_tx.send(vec![]);
         }
+        // 线程结束，关闭 audio_tx
+        drop(audio_tx);
     });
     
     let mut current_speaker: Option<String> = None;
+    let mut end_requested = false;
     
     loop {
-        // 接收消息
-        let msg = match socket.recv().await {
-            Some(Ok(msg)) => msg,
-            _ => break,
-        };
-
-        let text = match msg {
-            Message::Text(text) => text,
-            Message::Close(_) => break,
-            _ => continue,
-        };
-
-        // 检查是否是结束信号
-        if text == "end" {
-            let _ = text_tx.send((String::new(), None));
-            break;
-        }
-
-        // 解析请求
-        let req: TTSRequest = match serde_json::from_str(&text) {
-            Ok(r) => r,
-            Err(e) => {
-                let _ = socket.send(Message::Text(format!("{{\"error\": \"Invalid request: {}\"}}", e))).await;
-                continue;
-            }
-        };
-
-        // 记录 speaker（第一次有效）
-        if current_speaker.is_none() {
-            current_speaker = req.speaker.clone();
-        }
-
-        let text_to_generate = req.text.trim();
-        if text_to_generate.is_empty() {
-            continue;
-        }
-
-        // 发送文本到生成线程
-        let _ = text_tx.send((text_to_generate.to_string(), current_speaker.clone()));
-
-        // 接收音频数据
-        // 使用 recv_timeout 确保不会丢失数据
+        // 先发送所有待处理的音频数据
         loop {
-            match audio_rx.recv_timeout(std::time::Duration::from_millis(5000)) {
+            match audio_rx.try_recv() {
                 Ok(samples) => {
                     if samples.is_empty() {
-                        // 段完成信号
                         let _ = socket.send(Message::Text("segment_done".to_string())).await;
-                        break;
                     } else {
-                        // 音频数据
                         let bytes: Vec<u8> = samples
                             .iter()
                             .flat_map(|s| s.to_le_bytes())
@@ -349,14 +308,65 @@ async fn handle_tts_stream(mut socket: WebSocket, state: Arc<AppState>) {
                         }
                     }
                 }
-                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                    // 超时，继续等待
-                    continue;
-                }
-                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-                    // 通道关闭
+                Err(std::sync::mpsc::TryRecvError::Empty) => break,
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    // 生成线程结束
+                    end_requested = true;
                     break;
                 }
+            }
+        }
+        
+        // 如果生成线程结束，退出
+        if end_requested {
+            break;
+        }
+        
+        // 等待 WebSocket 消息（带超时，以便定期检查音频数据）
+        match tokio::time::timeout(
+            std::time::Duration::from_millis(50),
+            socket.recv()
+        ).await {
+            Ok(Some(Ok(Message::Text(text)))) => {
+                // 检查是否是结束信号
+                if text == "end" {
+                    let _ = text_tx.send((String::new(), None));
+                    // 标记结束，但继续处理剩余音频
+                    end_requested = true;
+                    continue;
+                }
+
+                // 解析请求
+                let req: TTSRequest = match serde_json::from_str(&text) {
+                    Ok(r) => r,
+                    Err(e) => {
+                        let _ = socket.send(Message::Text(format!("{{\"error\": \"Invalid request: {}\"}}", e))).await;
+                        continue;
+                    }
+                };
+
+                // 记录 speaker（第一次有效）
+                if current_speaker.is_none() {
+                    current_speaker = req.speaker.clone();
+                }
+
+                let text_to_generate = req.text.trim();
+                if text_to_generate.is_empty() {
+                    continue;
+                }
+
+                // 发送文本到生成线程
+                let _ = text_tx.send((text_to_generate.to_string(), current_speaker.clone()));
+            }
+            Ok(Some(Ok(Message::Close(_)))) => break,
+            Ok(Some(Ok(Message::Binary(_)))) => continue,
+            Ok(Some(Ok(Message::Ping(_)))) => continue,
+            Ok(Some(Ok(Message::Pong(_)))) => continue,
+            Ok(Some(Err(_))) => break,
+            Ok(None) => break,
+            Err(_) => {
+                // 超时，继续循环检查音频数据
+                continue;
             }
         }
     }
