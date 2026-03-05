@@ -1,6 +1,6 @@
 [package]
 name = "qwen3-tts"
-version = "0.1.4"
+version = "0.1.5"
 edition = "2021"
 description = "Rust implementation of Qwen3-TTS with ONNX Runtime"
 license = "MIT OR Apache-2.0"
@@ -46,6 +46,7 @@ base64 = "0.22"
 [features]
 cuda = []
 vulkan = []
+profile = []  # 启用性能分析计时
 
 
 [target.'cfg(windows)'.dependencies]

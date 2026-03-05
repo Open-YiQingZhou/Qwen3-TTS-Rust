@@ -1,6 +1,6 @@
 use crate::assets_manager::Assets;
 use crate::models::llama::{LlamaBatch, LlamaContext, LlamaModel, LlamaSampler};
-use crate::models::onnx::{AudioDecoder, AudioEncoder, SpeakerEncoder};
+use crate::models::onnx::{init_onruntime, AudioDecoder, AudioEncoder, SpeakerEncoder};
 use crate::tts::prompt::PromptBuilder;
 use crate::utils::cache;
 use crate::utils::tokenizer::Tokenizer;
@@ -146,7 +146,11 @@ impl TtsEngine {
         let tokenizer =
             Tokenizer::load(model_dir).map_err(|e| format!("Failed to load tokenizer: {}", e))?;
 
-        // 3. ONNX Models (Optional for preset mode, but good to have)
+        // 3. Initialize ONNX Runtime (must be called before any ONNX session)
+        println!("Initializing ONNX Runtime...");
+        init_onruntime().map_err(|e| format!("Failed to init ONNX Runtime: {}", e))?;
+
+        // 4. ONNX Models (Optional for preset mode, but good to have)
         let onnx_dir = model_dir.join("onnx");
         let encoder = AudioEncoder::load(
             &onnx_dir
@@ -162,7 +166,7 @@ impl TtsEngine {
         )
         .ok();
 
-        // 4. Load GGUF Models
+        // 5. Load GGUF Models
         let talker_path = model_dir.join(quant_dir).join("qwen3_tts_talker.gguf");
         let predictor_path = model_dir.join(quant_dir).join("qwen3_tts_predictor.gguf");
 
