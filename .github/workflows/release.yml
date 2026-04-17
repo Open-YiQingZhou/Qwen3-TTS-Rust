@@ -24,8 +24,8 @@ jobs:
             features: vulkan
             bin: qwen3_tts.exe
             name: qwen3-tts-windows-x64-vulkan.zip
-            llama_url: https://github.com/ggerganov/llama.cpp/releases/download/b7885/llama-b7885-bin-win-vulkan-x64.zip
-            ort_url: https://github.com/microsoft/onnxruntime/releases/download/v1.23.2/onnxruntime-win-x64-1.23.2.zip
+            llama_url: https://github.com/ggerganov/llama.cpp/releases/download/b8831/llama-b8831-bin-win-vulkan-x64.zip
+            ort_url: https://github.com/microsoft/onnxruntime/releases/download/v1.24.4/onnxruntime-win-x64-1.24.4.zip
 
           # Windows CUDA 12
           - os_name: Windows-x64
@@ -35,8 +35,8 @@ jobs:
             features: cuda
             bin: qwen3_tts.exe
             name: qwen3-tts-windows-x64-cuda12.zip
-            llama_url: https://github.com/ggerganov/llama.cpp/releases/download/b7885/llama-b7885-bin-win-cuda-12.4-x64.zip
-            ort_url: https://github.com/microsoft/onnxruntime/releases/download/v1.23.2/onnxruntime-win-x64-gpu-1.23.2.zip
+            llama_url: https://github.com/ggerganov/llama.cpp/releases/download/b8831/llama-b8831-bin-win-cuda-12.4-x64.zip
+            ort_url: https://github.com/microsoft/onnxruntime/releases/download/v1.24.4/onnxruntime-win-x64-gpu-1.24.4.zip
 
           # Linux Vulkan
           - os_name: Linux-x64
@@ -46,8 +46,8 @@ jobs:
             features: vulkan
             bin: qwen3_tts
             name: qwen3-tts-linux-x64-vulkan.tar.gz
-            llama_url: https://github.com/ggerganov/llama.cpp/releases/download/b7885/llama-b7885-bin-ubuntu-vulkan-x64.tar.gz
-            ort_url: https://github.com/microsoft/onnxruntime/releases/download/v1.23.2/onnxruntime-linux-x64-1.23.2.tgz
+            llama_url: https://github.com/ggerganov/llama.cpp/releases/download/b8831/llama-b8831-bin-ubuntu-vulkan-x64.tar.gz
+            ort_url: https://github.com/microsoft/onnxruntime/releases/download/v1.24.4/onnxruntime-linux-x64-1.24.4.tgz
 
           # macOS Metal
           - os_name: macOS-ARM64
@@ -57,8 +57,8 @@ jobs:
             features: "" # No specific feature needed for Metal? Or 'metal'? Cargo.toml doesn't have 'metal'.
             bin: qwen3_tts
             name: qwen3-tts-macos-arm64.tar.gz
-            llama_url: https://github.com/ggerganov/llama.cpp/releases/download/b7885/llama-b7885-bin-macos-arm64.tar.gz
-            ort_url: https://github.com/microsoft/onnxruntime/releases/download/v1.23.2/onnxruntime-osx-arm64-1.23.2.tgz
+            llama_url: https://github.com/ggerganov/llama.cpp/releases/download/b8831/llama-b8831-bin-macos-arm64.tar.gz
+            ort_url: https://github.com/microsoft/onnxruntime/releases/download/v1.24.4/onnxruntime-osx-arm64-1.24.4.tgz
 
     steps:
       - uses: actions/checkout@v4
@@ -84,13 +84,13 @@ jobs:
           mkdir -p dist/runtime
           mkdir -p dist/models
           mkdir -p dist/speakers
-          
+
           # Copy Binary
           cp target/${{ matrix.platform.target }}/release/${{ matrix.platform.bin }} dist/
-          
+
           # Copy Readme
           cp README.md dist/
-          
+
           # Copy Speakers
           cp -r speakers/* dist/speakers/
 
@@ -126,11 +126,11 @@ jobs:
           wget -O ort.tgz "${{ matrix.platform.ort_url }}"
           mkdir ort_temp
           tar -xzvf ort.tgz -C ort_temp
-          
+
           # Copy libs
           find ort_temp -name "*.so*" -exec cp {} dist/runtime/ \;
           find ort_temp -name "*.dylib" -exec cp {} dist/runtime/ \;
-          
+
           rm ort.tgz
           rm -rf ort_temp
 
