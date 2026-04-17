@@ -38,18 +38,25 @@ fn create_gpu_session(model_path: &str) -> Result<Session, Box<dyn Error>> {
 
     let dml = DirectMLExecutionProvider::default().build();
 
-    match builder.with_execution_providers([dml]) {
-        Ok(mut builder) => {
-            println!("  [ONNX] DirectML Provider configured.");
-            let session = builder.commit_from_file(model_path)?;
-            println!("  [ONNX] DirectML Session committed.");
-            Ok(session)
-        }
-        Err(e) => {
-            println!("  [ONNX] DirectML failed: {:?}, falling back to CPU.", e);
-            create_cpu_session(model_path)
-        }
-    }
+    let mut builder = builder.with_execution_providers([dml])?;
+    println!("  [ONNX] DirectML Provider configured.");
+
+    let session = builder.commit_from_file(model_path)?;
+    println!("  [ONNX] DirectML Session committed.");
+    Ok(session)
+
+    // match builder.with_execution_providers([dml]) {
+    //     Ok(mut builder) => {
+    //         println!("  [ONNX] DirectML Provider configured.");
+    //         let session = builder.commit_from_file(model_path)?;
+    //         println!("  [ONNX] DirectML Session committed.");
+    //         Ok(session)
+    //     }
+    //     Err(e) => {
+    //         println!("  [ONNX] DirectML failed: {:?}, falling back to CPU.", e);
+    //         create_cpu_session(model_path)
+    //     }
+    // }
 }
 
 /// 打印当前使用的执行提供者信息
