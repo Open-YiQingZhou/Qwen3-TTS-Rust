@@ -19,7 +19,7 @@ fn create_cpu_session(model_path: &str) -> Result<Session, Box<dyn Error>> {
     let builder = builder.with_optimization_level(GraphOptimizationLevel::Level3)?;
 
     let cpu = ort::execution_providers::CPUExecutionProvider::default().build();
-    let builder = builder.with_execution_providers([cpu])?;
+    let mut builder = builder.with_execution_providers([cpu])?;
     println!("  [ONNX] CPU Provider configured.");
 
     let session = builder.commit_from_file(model_path)?;
@@ -39,7 +39,7 @@ fn create_gpu_session(model_path: &str) -> Result<Session, Box<dyn Error>> {
     let dml = DirectMLExecutionProvider::default().build();
 
     match builder.with_execution_providers([dml]) {
-        Ok(builder) => {
+        Ok(mut builder) => {
             println!("  [ONNX] DirectML Provider configured.");
             let session = builder.commit_from_file(model_path)?;
             println!("  [ONNX] DirectML Session committed.");

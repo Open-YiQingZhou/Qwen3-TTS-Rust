@@ -341,14 +341,14 @@ impl Downloader {
 
                 match header.entry_type() {
                     tar::EntryType::Symlink => {
-                        if let Ok(Some(target_path)) = entry.link_name() {
+                        if let Ok(Some(_target_path)) = entry.link_name() {
                             #[cfg(unix)]
                             {
                                 // Remove existing file/link to avoid "File exists" error
                                 let _ = std::fs::remove_file(&dest_file);
 
                                 // target_path is a Cow<Path>, we use as_ref() to get the &Path
-                                std::os::unix::fs::symlink(target_path.as_ref(), &dest_file)?;
+                                std::os::unix::fs::symlink(_target_path.as_ref(), &dest_file)?;
                             }
                             #[cfg(not(unix))]
                             {
