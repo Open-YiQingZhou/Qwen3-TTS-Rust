@@ -1,6 +1,6 @@
 [package]
 name = "qwen3-tts"
-version = "0.1.4"
+version = "0.1.7"
 edition = "2021"
 description = "Rust implementation of Qwen3-TTS with ONNX Runtime"
 license = "MIT OR Apache-2.0"
@@ -35,10 +35,18 @@ futures-util = "0.3"
 zip = "2.2"
 tar = "0.4"
 flate2 = "1.0"
+num_cpus = "1.16"
+axum = { version = "0.7", features = ["ws", "multipart"] }
+axum-server = "0.7"
+tower = "0.5"
+tower-http = { version = "0.6", features = ["fs", "cors"] }
+tokio-tungstenite = "0.26"
+base64 = "0.22"
 
 [features]
 cuda = []
 vulkan = []
+profile = []  # 启用性能分析计时
 
 
 [target.'cfg(windows)'.dependencies]

@@ -1,48 +1,16 @@
 //! 真正的 ONNX 模型推理实现
 //! 使用 ort crate 进行 ONNX Runtime 推理
-//! 执行提供者优先级: DirectML -> CUDA -> CPU
+//! 执行提供者: DirectML (Windows GPU)
 
 use ndarray::{Array3, Array4};
-use ort::execution_providers::{CUDAExecutionProvider, DirectMLExecutionProvider};
+use ort::execution_providers::DirectMLExecutionProvider;
 use ort::session::builder::GraphOptimizationLevel;
 use ort::session::Session;
 use ort::session::SessionInputValue;
 use ort::value::Tensor;
 use std::error::Error;
 
-/// 创建 Session，自动选择最佳执行提供者
-/// 优先级: DirectML -> CUDA -> CPU
-#[allow(dead_code)]
-fn create_session_with_best_ep(model_path: &str) -> Result<Session, Box<dyn Error>> {
-    // 尝试按优先级注册执行提供者
-    // ort 会自动 fallback 到下一个可用的提供者
-
-    println!("  [ONNX] Requesting Execution Providers: CUDA -> DirectML -> CPU");
-    let builder = Session::builder()?;
-    println!("  [ONNX] Session Builder created.");
-
-    let builder = builder.with_optimization_level(GraphOptimizationLevel::Level3)?;
-    println!("  [ONNX] Optimization level set.");
-
-    // Split execution provider configuration for debugging
-    let cuda = CUDAExecutionProvider::default().build();
-    let dml = DirectMLExecutionProvider::default().build();
-    let cpu = ort::execution_providers::CPUExecutionProvider::default().build();
-
-    let mut builder = builder.with_execution_providers([
-        cuda, // 优先级 1: CUDA (NVIDIA GPU)
-        dml,  // 优先级 2: DirectML (Windows DirectX 12)
-        cpu,  // CPU 是默认的 fallback
-    ])?;
-    println!("  [ONNX] Execution Providers configured.");
-
-    let session = builder.commit_from_file(model_path)?;
-    println!("  [ONNX] Session committed from file.");
-
-    Ok(session)
-}
-
-/// 创建 CPU Session (为了简化部署和减少 DLL 依赖)
+/// 创建 CPU Session (fallback)
 fn create_cpu_session(model_path: &str) -> Result<Session, Box<dyn Error>> {
     println!("  [ONNX] Requesting Execution Providers: CPU");
     let builder = Session::builder()?;
@@ -51,13 +19,37 @@ fn create_cpu_session(model_path: &str) -> Result<Session, Box<dyn Error>> {
     let builder = builder.with_optimization_level(GraphOptimizationLevel::Level3)?;
 
     let cpu = ort::execution_providers::CPUExecutionProvider::default().build();
-    let mut builder = builder.with_execution_providers([cpu])?;
+    let builder = builder.with_execution_providers([cpu])?;
     println!("  [ONNX] CPU Provider configured.");
 
     let session = builder.commit_from_file(model_path)?;
     println!("  [ONNX] CPU Session committed.");
 
     Ok(session)
+}
+
+/// 创建 GPU Session (使用 DirectML)
+#[cfg(windows)]
+fn create_gpu_session(model_path: &str) -> Result<Session, Box<dyn Error>> {
+    println!("  [ONNX] Requesting Execution Providers: DirectML");
+    let builder = Session::builder()?;
+
+    let builder = builder.with_optimization_level(GraphOptimizationLevel::Level3)?;
+
+    let dml = DirectMLExecutionProvider::default().build();
+
+    match builder.with_execution_providers([dml]) {
+        Ok(builder) => {
+            println!("  [ONNX] DirectML Provider configured.");
+            let session = builder.commit_from_file(model_path)?;
+            println!("  [ONNX] DirectML Session committed.");
+            Ok(session)
+        }
+        Err(e) => {
+            println!("  [ONNX] DirectML failed: {:?}, falling back to CPU.", e);
+            create_cpu_session(model_path)
+        }
+    }
 }
 
 /// 打印当前使用的执行提供者信息
@@ -86,8 +78,13 @@ impl AudioEncoder {
     pub fn load(model_path: &str) -> Result<Self, Box<dyn Error>> {
         println!("  [ONNX] AudioEncoder: Loading {}", model_path);
 
-        // Revert to CPU for stability and minimal dependencies
+        // Windows 上尝试使用 DirectML/CUDA 加速
+        #[cfg(windows)]
+        let session = create_gpu_session(model_path)?;
+
+        #[cfg(not(windows))]
         let session = create_cpu_session(model_path)?;
+
         print_session_info(&session, "AudioEncoder");
 
         Ok(AudioEncoder { session })
@@ -129,8 +126,13 @@ impl SpeakerEncoder {
     pub fn load(model_path: &str) -> Result<Self, Box<dyn Error>> {
         println!("  [ONNX] SpeakerEncoder: Loading {}", model_path);
 
-        // Revert to CPU for stability
+        // Windows 上尝试使用 DirectML/CUDA 加速
+        #[cfg(windows)]
+        let session = create_gpu_session(model_path)?;
+
+        #[cfg(not(windows))]
         let session = create_cpu_session(model_path)?;
+
         print_session_info(&session, "SpeakerEncoder");
 
         Ok(SpeakerEncoder { session })
@@ -328,7 +330,13 @@ impl AudioDecoder {
     pub fn load(model_path: &str) -> Result<Self, Box<dyn Error>> {
         println!("  [ONNX] AudioDecoder: Loading {}", model_path);
 
+        // Windows 上尝试使用 DirectML 加速
+        #[cfg(windows)]
+        let session = create_gpu_session(model_path)?;
+
+        #[cfg(not(windows))]
         let session = create_cpu_session(model_path)?;
+
         print_session_info(&session, "AudioDecoder");
 
         Ok(AudioDecoder { session })
@@ -344,17 +352,17 @@ impl AudioDecoder {
         state: &mut DecoderState,
         is_final: bool,
     ) -> Result<Vec<f32>, Box<dyn Error>> {
-        // println!("  [ONNX] AudioDecoder: Decoding {} codes (is_final={})", codes.len(), is_final);
-
         let n_frames = codes.len() / 16;
-        if n_frames == 0 {
+
+        // 如果没有帧且不是 is_final，直接返回空
+        if n_frames == 0 && !is_final {
             return Ok(vec![]);
         }
 
         // 1. Prepare Inputs
         let mut inputs_vec: Vec<(std::borrow::Cow<'_, str>, SessionInputValue<'_>)> = Vec::new();
 
-        // audio_codes: [1, N, 16] (if N>0)
+        // audio_codes: [1, N, 16] (N can be 0 for flushing)
         let codes_shape = vec![1i64, n_frames as i64, 16i64];
         let codes_tensor = Tensor::from_array((codes_shape, codes.to_vec()))?;
         inputs_vec.push(("audio_codes".into(), codes_tensor.into()));
@@ -393,12 +401,11 @@ impl AudioDecoder {
         // We assume safe to retrieve by name.
 
         // Handling valid_samples which might be scalar or 1D
-        // Handling valid_samples which might be scalar or 1D
         let valid_count = if let Some(valid_out) = outputs.get("valid_samples") {
             let valid_raw = valid_out.try_extract_tensor::<i64>()?;
             valid_raw.1[0] as usize
         } else {
-            wav_raw.1.len() // Fallback if not present (should be)
+            wav_raw.1.len()
         };
 
         let audio: Vec<f32> = wav_raw.1.iter().take(valid_count).cloned().collect();
@@ -510,27 +517,44 @@ impl CodecEmbeddings {
     }
 }
 
-pub fn init_onruntime() -> Result<(), Box<dyn Error>> {
-    // Explicitly try to load onnxruntime.dll from runtime/ to ensure it's available
-    // or set PATH? ort might not use libloading directly for the dll itself in the same way.
-    // However, if we load it into the process, it might be found.
-    // Alternatively, we can try to set the environment variable path.
+pub fn init_onruntime() -> Result<(), Box<dyn std::error::Error>> {
+    use std::path::PathBuf;
 
-    let dll_path = if std::path::Path::new("runtime/onnxruntime.dll").exists() {
-        "runtime/onnxruntime.dll"
+    let (dll_name, providers_dll_name) = if cfg!(windows) {
+        ("onnxruntime.dll", "onnxruntime_providers_shared.dll")
+    } else if cfg!(target_os = "macos") {
+        (
+            "libonnxruntime.dylib",
+            "libonnxruntime_providers_shared.dylib",
+        )
     } else {
-        "onnxruntime.dll"
+        ("libonnxruntime.so", "libonnxruntime_providers_shared.so")
     };
 
-    // We don't necessarily need to keep the library handle if ort loads it its own way,
-    // but loading it here verifies existence and might help with resolution.
-    // NOTE: ort 2.0 might have specific configuration for DLL path.
-    // For now, let's just print where we think it is.
-    println!("  [ONNX] Init: Expecting DLL at {}", dll_path);
+    let runtime_dir = PathBuf::from("runtime");
+    let dll_path = runtime_dir.join(dll_name);
 
-    // Attempt to pre-load to see if it fails
-    // let _lib = libloading::Library::new(dll_path)?;
-    // ^ confusing ownership if we drop it.
+    if !dll_path.exists() {
+        return Err(format!("ONNX Runtime DLL not found at: {}", dll_path.display()).into());
+    }
+
+    let providers_path = runtime_dir.join(providers_dll_name);
+    if providers_path.exists() {
+        std::env::set_var("ORT_DYLIB_PATH", &dll_path);
+    }
+
+    println!("  [ONNX] Loading ONNX Runtime from: {}", dll_path.display());
+
+    let env_builder =
+        ort::init_from(&dll_path).map_err(|e| format!("Failed to load ONNX Runtime DLL: {}", e))?;
+
+    let committed = env_builder.with_name("Qwen3TTS").commit();
+
+    if !committed {
+        return Err("Failed to commit ONNX Runtime environment".into());
+    }
+
+    println!("  [ONNX] ONNX Runtime initialized successfully.");
 
     Ok(())
 }

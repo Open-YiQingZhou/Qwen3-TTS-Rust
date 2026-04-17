@@ -160,11 +160,11 @@ impl Assets {
                 num_elems,
                 num_elems * 4
             );
-            // if info._type != 0 {
-            //     return Err(
-            //         format!("Unsupported tensor type: {} (expected F32)", info._type).into(),
-            //     );
-            // }
+            if info._type != 0 {
+                return Err(
+                    format!("Unsupported tensor type: {} (expected F32)", info._type).into(),
+                );
+            }
 
             if num_elems * 4 != info.shape.iter().product::<usize>() * 4 {
                 // Paranoia check

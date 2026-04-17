@@ -1,5 +1,4 @@
 //! Llama.cpp FFI Bindings
-// use libc::free; // Removed unused import
 use std::ffi::{c_char, c_float, c_void};
 use std::os::raw::{c_int, c_uint};
 use std::path::Path;
@@ -15,13 +14,12 @@ pub struct llama_model_params {
     pub progress_callback: *mut c_void,
     pub progress_callback_user_data: *mut c_void,
     pub kv_overrides: *mut c_void,
-    // CRITICAL: These must be bool (1 byte) to match C struct layout
     pub vocab_only: bool,
     pub use_mmap: bool,
     pub use_direct_io: bool,
     pub use_mlock: bool,
     pub check_tensors: bool,
-    pub use_extra_bufts: bool, // Note: Python uses 'use_extra_bufts'
+    pub use_extra_bufts: bool,
     pub no_host: bool,
     pub no_alloc: bool,
 }
@@ -51,7 +49,6 @@ pub struct llama_context_params {
     pub type_v: c_int,
     pub abort_callback: *mut c_void,
     pub abort_callback_data: *mut c_void,
-    // CRITICAL: These must be bool (1 byte) to match C struct layout
     pub embeddings: bool,
     pub offload_kqv: bool,
     pub no_perf: bool,
@@ -148,11 +145,9 @@ static FFI: std::sync::OnceLock<LlamaFFI> = std::sync::OnceLock::new();
 pub fn get_ffi() -> &'static LlamaFFI {
     FFI.get_or_init(|| {
         unsafe {
-            // Get absolute path to runtime directory
             let runtime_path = std::env::current_dir().unwrap().join("runtime");
             let runtime_path_str = runtime_path.to_string_lossy();
 
-            // 1. Add to PATH/LD_LIBRARY_PATH (Most robust for all types of loading)
             let path_key = if cfg!(target_os = "windows") {
                 "PATH"
             } else if cfg!(target_os = "macos") {
@@ -170,7 +165,6 @@ pub fn get_ffi() -> &'static LlamaFFI {
                 println!("  [System] Added to {}: {}", path_key, runtime_path_str);
             }
 
-            // 2. Set DLL search path (Windows specific)
             #[cfg(target_os = "windows")]
             {
                 use std::os::windows::ffi::OsStrExt;
@@ -182,11 +176,9 @@ pub fn get_ffi() -> &'static LlamaFFI {
                 println!("  [System] SetDllDirectoryW set to: {}", runtime_path_str);
             }
 
-            // 3. Set GGML_BACKEND_PATH (Llama.cpp specific)
             std::env::set_var("GGML_BACKEND_PATH", &*runtime_path_str);
             println!("  [System] GGML_BACKEND_PATH set to: {}", runtime_path_str);
 
-            // Library names based on platform
             let (ggml_name, llama_name, libomp_name) = if cfg!(target_os = "windows") {
                 ("ggml.dll", "llama.dll", Some("libomp140.x86_64.dll"))
             } else if cfg!(target_os = "macos") {
@@ -195,13 +187,11 @@ pub fn get_ffi() -> &'static LlamaFFI {
                 ("libggml.so", "libllama.so", None)
             };
 
-            // Pre-load libomp if present
             if let Some(omp_name) = libomp_name {
                 let libomp_path = runtime_path.join(omp_name);
                 let _libomp = libloading::Library::new(&libomp_path).ok();
             }
 
-            // 加载 ggml (Dependency of llama)
             let ggml_path = runtime_path.join(ggml_name);
             let ggml_lib = libloading::Library::new(&ggml_path)
                 .map_err(|e| {
@@ -212,7 +202,6 @@ pub fn get_ffi() -> &'static LlamaFFI {
                 })
                 .ok();
 
-            // 加载 llama
             let llama_path = runtime_path.join(llama_name);
             let lib = libloading::Library::new(&llama_path)
                 .unwrap_or_else(|_| panic!("Failed to load {}. Please ensure it is in the runtime/ directory.", llama_name));
@@ -230,7 +219,6 @@ pub fn get_ffi() -> &'static LlamaFFI {
                     .unwrap_or(dummy_fn)
             };
 
-            // Try to manually load vulkan backend to check for missing dependencies
             let vulkan_path = runtime_path.join("ggml-vulkan.dll");
             match libloading::Library::new(&vulkan_path) {
                 Ok(_) => println!("  [System] Verified: ggml-vulkan.dll is loadable."),
@@ -293,14 +281,13 @@ pub fn get_ffi() -> &'static LlamaFFI {
                 ggml_backend_load_all: load_all_fn,
             };
 
-            // Temporarily switch CWD to runtime/ to help ggml_backend_load_all() find its siblings
             let original_cwd = std::env::current_dir().ok();
             if original_cwd.is_some() {
                 let _ = std::env::set_current_dir(&runtime_path);
             }
 
-            (ffi.ggml_backend_load_all)(); // 加载所有 backend
-            (ffi.llama_backend_init)(); // 初始化 backend
+            (ffi.ggml_backend_load_all)();
+            (ffi.llama_backend_init)();
 
             if let Some(cwd) = original_cwd {
                 let _ = std::env::set_current_dir(cwd);
@@ -333,12 +320,16 @@ pub struct LlamaModel {
     pub n_vocab: usize,
     pub eos_token: LlamaToken,
 }
+
+unsafe impl Send for LlamaModel {}
+unsafe impl Sync for LlamaModel {}
+
 impl LlamaModel {
     pub fn load(path: &Path, n_gpu_layers: i32) -> Result<Self, String> {
         let ffi = get_ffi();
         unsafe {
             let mut params = (ffi.llama_model_default_params)();
-            params.n_gpu_layers = n_gpu_layers; // Actually use the parameter!
+            params.n_gpu_layers = n_gpu_layers;
             let c_path =
                 std::ffi::CString::new(path.to_str().unwrap()).map_err(|e| e.to_string())?;
             let ptr = (ffi.llama_model_load_from_file)(c_path.as_ptr(), params);
@@ -392,10 +383,12 @@ impl Clone for LlamaModel {
 
 pub struct LlamaContext {
     pub ptr: LlamaContextPtr,
-    /// Wrapped in ManuallyDrop to prevent double-free.
-    /// The model's lifetime is owned by TtsEngine; LlamaContext only borrows it.
     pub model: std::mem::ManuallyDrop<LlamaModel>,
 }
+
+unsafe impl Send for LlamaContext {}
+unsafe impl Sync for LlamaContext {}
+
 impl LlamaContext {
     pub fn new(
         model: &LlamaModel,
@@ -409,25 +402,21 @@ impl LlamaContext {
             let mut params = (ffi.llama_context_default_params)();
             params.n_ctx = n_ctx;
             params.n_batch = n_batch;
-            params.n_ubatch = 512; // Match Python default
+            params.n_ubatch = 512;
             params.n_seq_max = 1;
-            params.embeddings = embeddings != 0; // Convert to bool
-            params.flash_attn_type = 1; // 1 = Enabled (Optimized)
-            params.offload_kqv = true; // Match Python
-            params.no_perf = true; // Match Python
+            params.embeddings = embeddings != 0;
+            params.flash_attn_type = 1;
+            params.offload_kqv = true;
+            params.no_perf = true;
 
-            // Threading configuration
             if n_threads > 0 {
                 params.n_threads = n_threads;
             } else {
-                // Default logic: Clamp n_threads to 4 for small-batch inference performance
                 let cpu_count = std::thread::available_parallelism()
                     .map(|p| p.get() as c_int)
                     .unwrap_or(4);
                 params.n_threads = (cpu_count / 2).min(4);
             }
-
-            // params.n_threads_batch = cpu_count; // Use default or let llama.cpp handle it
 
             let ptr = (ffi.llama_init_from_model)(model.ptr, params);
             if ptr.is_null() {
@@ -532,12 +521,8 @@ impl LlamaBatch {
     ) -> Self {
         let ffi = get_ffi();
         unsafe {
-            // llama_batch_init allocates all necessary buffers (token, embd, pos, seq_id, logits)
             let batch =
                 (ffi.llama_batch_init)(n_tokens_max as c_int, n_embd as c_int, n_seq_max as c_int);
-
-            // We do NOT override these pointers with Rust Vecs anymore.
-            // We use the memory managed by llama.cpp.
 
             Self {
                 batch,
@@ -556,16 +541,13 @@ impl LlamaBatch {
     pub fn set_embd(&mut self, prompt_embeds: &[f32], pos_arr: &[i32], seq_id: i32) {
         let n_tokens = prompt_embeds.len() / self.n_embd;
         unsafe {
-            // Copy embeddings to batch.embd (C memory)
             std::ptr::copy_nonoverlapping(
                 prompt_embeds.as_ptr(),
                 self.batch.embd,
                 prompt_embeds.len(),
             );
 
-            // Copy positions to batch.pos (C memory)
-            let max_pos = self.n_tokens_max; // Use n_tokens_max as simple limit. M-RoPE might need more checks if we could query allocated size?
-                                             // But llama_batch_init allocates n_tokens_max elements for pos.
+            let max_pos = self.n_tokens_max;
 
             if pos_arr.len() > max_pos {
                 eprintln!(
@@ -581,33 +563,13 @@ impl LlamaBatch {
             );
         }
 
-        // Set sequence IDs
         for i in 0..n_tokens {
-            // batch.n_seq_id is *mut i32
             unsafe {
                 *self.batch.n_seq_id.add(i) = 1;
-
-                // batch.seq_id is *mut *mut i32.
-                // It points to an array of pointers. Each pointer points to an array of seq_ids?
-                // Wait, llama_batch_init allocates seq_id[i] as well?
-                // "The seq_id array is not allocated by llama_batch_init" ???
-                // Let's check llama.cpp docs/source.
-                // "llama_batch_init" allocates "seq_id" as array of pointers.
-                // BUT it does NOT allocate the actual int arrays they point to?
-                // Actually, it usually does NOT. The user is expected to assign pointers.
-                // OR it allocates a default buffer?
-                //
-                // Usage in common.cpp:
-                // batch.seq_id[i][0] = 0;
-                // This implies batch.seq_id[i] IS valid pointer.
-                // So llama_batch_init must have allocated it.
-                //
-                // Let's assume it IS allocated.
 
                 let seq_ids = *self.batch.seq_id.add(i);
                 *seq_ids.add(0) = seq_id;
 
-                // Set logits
                 *self.batch.logits.add(i) = if i == n_tokens - 1 { 1 } else { 0 };
             }
         }
@@ -631,11 +593,15 @@ pub struct LlamaSampler {
     temperature: f32,
     top_k: usize,
     top_p: f32,
+    min_p: f32,
+    repeat_penalty: f32,
+    frequency_penalty: f32,
+    presence_penalty: f32,
+    penalty_last_n: usize,
+    token_history: std::cell::RefCell<Vec<LlamaToken>>,
     rng: std::cell::RefCell<rand::rngs::StdRng>,
 }
 impl LlamaSampler {
-    /// Create a sampler with temperature-based random sampling
-    /// Python defaults: temperature=0.5, top_k=50, top_p=1.0
     pub fn new(n_vocab: usize, temperature: f32, top_k: i32, top_p: f32, seed: u64) -> Self {
         use rand::SeedableRng;
         Self {
@@ -645,22 +611,110 @@ impl LlamaSampler {
             temperature,
             top_k: top_k as usize,
             top_p,
+            min_p: 0.0,
+            repeat_penalty: 1.0,
+            frequency_penalty: 0.0,
+            presence_penalty: 0.0,
+            penalty_last_n: 64,
+            token_history: std::cell::RefCell::new(Vec::new()),
             rng: std::cell::RefCell::new(rand::rngs::StdRng::seed_from_u64(seed)),
         }
     }
 
-    /// Create a greedy (argmax) sampler
     pub fn greedy(n_vocab: usize) -> Self {
         use rand::SeedableRng;
         Self {
             _ptr: std::ptr::null_mut(),
             n_vocab,
             _neg_inf: -1e9,
-            temperature: 0.0, // 0.0 means greedy
+            temperature: 0.0,
             top_k: 0,
             top_p: 1.0,
+            min_p: 0.0,
+            repeat_penalty: 1.0,
+            frequency_penalty: 0.0,
+            presence_penalty: 0.0,
+            penalty_last_n: 64,
+            token_history: std::cell::RefCell::new(Vec::new()),
             rng: std::cell::RefCell::new(rand::rngs::StdRng::seed_from_u64(42)),
         }
+    }
+
+    pub fn with_penalties(
+        mut self,
+        min_p: f32,
+        repeat_penalty: f32,
+        frequency_penalty: f32,
+        presence_penalty: f32,
+        penalty_last_n: usize,
+    ) -> Self {
+        self.min_p = min_p;
+        self.repeat_penalty = repeat_penalty;
+        self.frequency_penalty = frequency_penalty;
+        self.presence_penalty = presence_penalty;
+        self.penalty_last_n = penalty_last_n;
+        self
+    }
+
+    pub fn accept(&self, token: LlamaToken) {
+        let mut history = self.token_history.borrow_mut();
+        history.push(token);
+        if history.len() > self.penalty_last_n {
+            let excess = history.len() - self.penalty_last_n;
+            history.drain(0..excess);
+        }
+    }
+
+    fn apply_penalties(&self, logits: &mut [f32]) {
+        if self.repeat_penalty == 1.0
+            && self.frequency_penalty == 0.0
+            && self.presence_penalty == 0.0
+        {
+            return;
+        }
+
+        let history = self.token_history.borrow();
+        let mut token_counts: std::collections::HashMap<LlamaToken, usize> =
+            std::collections::HashMap::new();
+
+        for &token in history.iter() {
+            *token_counts.entry(token).or_insert(0) += 1;
+        }
+
+        // 惩罚豁免名单：EOS(2150)、PAD(2148)、BOS(2149)、TTS_EOS(151673)
+        let penalty_exempt: std::collections::HashSet<LlamaToken> = 
+            [2150, 2148, 2149, 151673].iter().cloned().collect();
+
+        for (&token, &count) in token_counts.iter() {
+            // 跳过豁免名单中的 token
+            if penalty_exempt.contains(&token) {
+                continue;
+            }
+            
+            let idx = token as usize;
+            if idx < logits.len() {
+                if self.repeat_penalty != 1.0 {
+                    if logits[idx] > 0.0 {
+                        logits[idx] /= self.repeat_penalty;
+                    } else {
+                        logits[idx] *= self.repeat_penalty;
+                    }
+                }
+                logits[idx] -= self.frequency_penalty * count as f32;
+                logits[idx] -= self.presence_penalty;
+            }
+        }
+    }
+
+    fn apply_min_p(&self, probs: &mut Vec<(usize, f32)>) {
+        if self.min_p <= 0.0 || probs.is_empty() {
+            return;
+        }
+
+        let max_prob = probs.iter().map(|(_, p)| *p).fold(0.0, f32::max);
+        let threshold = max_prob * self.min_p;
+
+        probs.retain(|(_, p)| *p >= threshold);
     }
 
     pub fn sample(
@@ -670,67 +724,94 @@ impl LlamaSampler {
         limit_start: Option<usize>,
         limit_end: Option<usize>,
     ) -> LlamaToken {
+        self.sample_with_allow(ctx, idx, limit_start, limit_end, None)
+    }
+
+    pub fn sample_with_allow(
+        &self,
+        ctx: &LlamaContext,
+        idx: i32,
+        limit_start: Option<usize>,
+        limit_end: Option<usize>,
+        allow_tokens: Option<&[LlamaToken]>,
+    ) -> LlamaToken {
         let ffi = get_ffi();
         unsafe {
-            // Handle index offset: idx can be -1 (implied logic?) or explicit batch index.
-            // But since we are manually implementing sampling, 'idx' MUST be the explicit Batch Index (0-based)
-            // relative to the logits buffer.
-            // If idx < 0, we can't easily resolve here without knowing Batch Size.
-            // So we assume idx is valid >= 0.
-
             let offset = if idx >= 0 { idx as usize } else { 0 };
             let base_ptr = (ffi.llama_get_logits)(ctx.ptr);
             let logits_ptr = base_ptr.add(offset * self.n_vocab);
 
-            let logits = std::slice::from_raw_parts(logits_ptr, self.n_vocab);
+            let logits_raw = std::slice::from_raw_parts(logits_ptr, self.n_vocab);
+            let mut logits: Vec<f32> = logits_raw.to_vec();
+
             let start = limit_start.unwrap_or(0);
             let end = limit_end.unwrap_or(self.n_vocab).min(self.n_vocab);
 
-            // OPTIMIZATION: Zero-alloc Argmax for Greedy Sampling
+            let mut mask = vec![true; self.n_vocab];
+            for m in mask.iter_mut().take(end).skip(start) {
+                *m = false;
+            }
+            if let Some(allow) = allow_tokens {
+                for &token in allow {
+                    let t = token as usize;
+                    if t < self.n_vocab {
+                        mask[t] = false;
+                    }
+                }
+            }
+            for (i, &m) in mask.iter().enumerate() {
+                if m {
+                    logits[i] = self._neg_inf;
+                }
+            }
+
+            self.apply_penalties(&mut logits);
+
             if self.temperature <= 0.0 {
                 let mut max_val = f32::NEG_INFINITY;
-                let mut max_idx = start;
+                let mut max_idx = 0;
 
-                for (i, &val) in logits.iter().enumerate().take(end).skip(start) {
+                for (i, &val) in logits.iter().enumerate() {
                     if val > max_val {
                         max_val = val;
                         max_idx = i;
                     }
                 }
+                self.accept(max_idx as LlamaToken);
                 return max_idx as LlamaToken;
             }
 
-            // Normal Sampling (Temperature/Top-K/Top-P)
-            // 1. Collect (index, logit) pairs in range
-            let mut candidates: Vec<(usize, f32)> = (start..end).map(|i| (i, logits[i])).collect();
+            let mut candidates: Vec<(usize, f32)> = logits
+                .iter()
+                .enumerate()
+                .filter(|(_, &v)| v > f32::NEG_INFINITY / 2.0)
+                .map(|(i, &v)| (i, v))
+                .collect();
 
-            // 2. Sort by logit descending
             candidates.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
 
-            // 3. Apply top_k filter
             if self.top_k > 0 && self.top_k < candidates.len() {
                 candidates.truncate(self.top_k);
             }
 
-            // 4. Apply temperature and compute softmax
             let max_logit = candidates.first().map(|(_, l)| *l).unwrap_or(0.0);
             let mut probs: Vec<(usize, f32)> = candidates
                 .iter()
                 .map(|(idx, logit)| {
-                    let scaled = (logit - max_logit) / self.temperature;
+                    let scaled = (*logit - max_logit) / self.temperature;
                     (*idx, scaled.exp())
                 })
                 .collect();
 
-            // 5. Normalize to probabilities
-            let sum: f32 = probs.iter().map(|(_, p)| p).sum();
+            let sum: f32 = probs.iter().map(|(_, p)| *p).sum();
             if sum > 0.0 {
                 for (_, p) in probs.iter_mut() {
                     *p /= sum;
                 }
             }
 
-            // 6. Apply top_p (nucleus) sampling
+            self.apply_min_p(&mut probs);
+
             if self.top_p < 1.0 {
                 let mut cumsum = 0.0;
                 let mut cutoff_idx = probs.len();
@@ -743,8 +824,7 @@ impl LlamaSampler {
                 }
                 probs.truncate(cutoff_idx);
 
-                // Renormalize
-                let new_sum: f32 = probs.iter().map(|(_, p)| p).sum();
+                let new_sum: f32 = probs.iter().map(|(_, p)| *p).sum();
                 if new_sum > 0.0 {
                     for (_, p) in probs.iter_mut() {
                         *p /= new_sum;
@@ -752,150 +832,156 @@ impl LlamaSampler {
                 }
             }
 
-            // 7. Sample from distribution
             use rand::Rng;
             let r: f32 = self.rng.borrow_mut().gen();
             let mut cumsum = 0.0;
             for (idx, p) in probs.iter() {
                 cumsum += p;
                 if r < cumsum {
+                    self.accept(*idx as LlamaToken);
                     return *idx as LlamaToken;
                 }
             }
 
-            // Fallback to first candidate
-            probs
+            let result = probs
                 .first()
                 .map(|(idx, _)| *idx as LlamaToken)
-                .unwrap_or(start as LlamaToken)
+                .unwrap_or(start as LlamaToken);
+            self.accept(result);
+            result
         }
     }
 
-    /// Sample from a restricted range [0, limit_idx) AND a specific list of allowed tokens.
-    /// This is useful for Qwen3-TTS where we want audio codes (0-2160) OR EOS tokens (151643, etc.)
-    pub fn sample_custom(
+    /// 采样时对静音 token 施加惩罚
+    /// silent_penalty: 静音惩罚系数（0-1），降低静音 token 的概率
+    /// silent_threshold: 静音 token 的阈值（code_0 < silent_threshold 被视为静音）
+    pub fn sample_with_silent_penalty(
         &self,
         ctx: &LlamaContext,
-        limit_idx: usize,
-        allow_tokens: &[LlamaToken],
+        idx: i32,
+        limit_start: Option<usize>,
+        limit_end: Option<usize>,
+        allow_tokens: Option<&[LlamaToken]>,
+        silent_penalty: f32,
+        silent_threshold: usize,
     ) -> LlamaToken {
         let ffi = get_ffi();
         unsafe {
-            let logits_ptr = (ffi.llama_get_logits)(ctx.ptr);
-            let logits = std::slice::from_raw_parts(logits_ptr, self.n_vocab);
+            let offset = if idx >= 0 { idx as usize } else { 0 };
+            let base_ptr = (ffi.llama_get_logits)(ctx.ptr);
+            let logits_ptr = base_ptr.add(offset * self.n_vocab);
 
-            // Determine search range
-            let start = 0; // Always start from 0 for custom sampling
-            let end = limit_idx.min(self.n_vocab);
+            let logits_raw = std::slice::from_raw_parts(logits_ptr, self.n_vocab);
+            let mut logits: Vec<f32> = logits_raw.to_vec();
 
-            // OPTIMIZATION: Zero-alloc Argmax for Greedy Sampling
+            let start = limit_start.unwrap_or(0);
+            let end = limit_end.unwrap_or(self.n_vocab).min(self.n_vocab);
+
+            // 创建掩码
+            let mut mask = vec![true; self.n_vocab];
+            for m in mask.iter_mut().take(end).skip(start) {
+                *m = false;
+            }
+            if let Some(allow) = allow_tokens {
+                for &token in allow {
+                    let t = token as usize;
+                    if t < self.n_vocab {
+                        mask[t] = false;
+                    }
+                }
+            }
+            for (i, &m) in mask.iter().enumerate() {
+                if m {
+                    logits[i] = self._neg_inf;
+                }
+            }
+
+            // 对静音 token 施加惩罚（降低 logits）
+            if silent_penalty > 0.0 {
+                for i in 0..silent_threshold.min(end) {
+                    if !mask[i] {
+                        logits[i] -= silent_penalty;
+                    }
+                }
+            }
+
+            self.apply_penalties(&mut logits);
+
             if self.temperature <= 0.0 {
                 let mut max_val = f32::NEG_INFINITY;
-                let mut max_idx = start;
+                let mut max_idx = 0;
 
-                // Check range [0, limit_idx)
-                for (i, &val) in logits.iter().enumerate().take(end).skip(start) {
+                for (i, &val) in logits.iter().enumerate() {
                     if val > max_val {
                         max_val = val;
                         max_idx = i;
                     }
                 }
-
-                // Check allowed special tokens
-                for &token in allow_tokens {
-                    let idx = token as usize;
-                    if idx < self.n_vocab {
-                        let val = logits[idx];
-                        if val > max_val {
-                            max_val = val;
-                            max_idx = idx;
-                        }
-                    }
-                }
+                self.accept(max_idx as LlamaToken);
                 return max_idx as LlamaToken;
             }
 
-            // Normal Sampling (Temperature/Top-K/Top-P)
-            // 1. Collect candidates: [0..limit_idx] + [allow_tokens]
-            let mut candidates: Vec<(usize, f32)> =
-                Vec::with_capacity(limit_idx + allow_tokens.len());
-
-            // Add range [0, limit_idx)
-            for (i, &val) in logits
+            let mut candidates: Vec<(usize, f32)> = logits
                 .iter()
                 .enumerate()
-                .take(limit_idx.min(self.n_vocab))
-            {
-                candidates.push((i, val));
-            }
+                .filter(|(_, &v)| v > f32::NEG_INFINITY / 2.0)
+                .map(|(i, &v)| (i, v))
+                .collect();
 
-            // Add allowed special tokens
-            for &token in allow_tokens {
-                let idx = token as usize;
-                if idx < self.n_vocab {
-                    candidates.push((idx, logits[idx]));
-                }
-            }
-
-            // 2. Sort
             candidates.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
 
-            // 3. Top-K
             if self.top_k > 0 && self.top_k < candidates.len() {
                 candidates.truncate(self.top_k);
             }
 
-            // 4. Softmax
             let max_logit = candidates.first().map(|(_, l)| *l).unwrap_or(0.0);
             let mut probs: Vec<(usize, f32)> = candidates
                 .iter()
                 .map(|(idx, logit)| {
-                    let scaled = (logit - max_logit) / self.temperature;
+                    let scaled = (*logit - max_logit) / self.temperature;
                     (*idx, scaled.exp())
                 })
                 .collect();
 
-            // 5. Normalize
-            let sum: f32 = probs.iter().map(|(_, p)| p).sum();
+            let sum: f32 = probs.iter().map(|(_, p)| *p).sum();
             if sum > 0.0 {
                 for (_, p) in probs.iter_mut() {
                     *p /= sum;
                 }
             }
 
-            // 6. Top-P
+            self.apply_min_p(&mut probs);
+
             if self.top_p < 1.0 {
                 let mut cumsum = 0.0;
                 let mut cutoff_idx = probs.len();
                 for (i, (_, p)) in probs.iter().enumerate() {
                     cumsum += p;
-                    if cumsum >= self.top_p {
+                    if cumsum > self.top_p {
                         cutoff_idx = i + 1;
                         break;
                     }
                 }
                 probs.truncate(cutoff_idx);
-                // Renormalize
-                let new_sum: f32 = probs.iter().map(|(_, p)| p).sum();
-                if new_sum > 0.0 {
-                    for (_, p) in probs.iter_mut() {
-                        *p /= new_sum;
-                    }
-                }
             }
 
-            // 7. Sample
             use rand::Rng;
             let r: f32 = self.rng.borrow_mut().gen();
             let mut cumsum = 0.0;
             for (idx, p) in probs.iter() {
                 cumsum += p;
                 if r < cumsum {
+                    self.accept(*idx as LlamaToken);
                     return *idx as LlamaToken;
                 }
             }
 
-            probs[0].0 as LlamaToken
+            let result = probs
+                .first()
+                .map(|(idx, _)| *idx as LlamaToken)
+                .unwrap_or(start as LlamaToken);
+            self.accept(result);
+            result
         }
     }
 }

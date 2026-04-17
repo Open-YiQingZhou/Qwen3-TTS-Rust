@@ -1,0 +1,631 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Qwen3-TTS WebUI</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            min-height: 100vh;
+            color: #e0e0e0;
+            padding: 20px;
+        }
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+        }
+        h1 {
+            text-align: center;
+            margin-bottom: 30px;
+            color: #00d4ff;
+            text-shadow: 0 0 20px rgba(0, 212, 255, 0.5);
+        }
+        .card {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 16px;
+            padding: 24px;
+            margin-bottom: 20px;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        .card h2 {
+            margin-bottom: 16px;
+            color: #00d4ff;
+            font-size: 1.2em;
+        }
+        .form-group {
+            margin-bottom: 16px;
+        }
+        label {
+            display: block;
+            margin-bottom: 8px;
+            color: #aaa;
+        }
+        textarea {
+            width: 100%;
+            min-height: 100px;
+            padding: 12px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 8px;
+            background: rgba(0, 0, 0, 0.3);
+            color: #fff;
+            font-size: 16px;
+            resize: vertical;
+        }
+        textarea:focus {
+            outline: none;
+            border-color: #00d4ff;
+            box-shadow: 0 0 10px rgba(0, 212, 255, 0.3);
+        }
+        select, input[type="number"] {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 8px;
+            background: rgba(0, 0, 0, 0.3);
+            color: #fff;
+            font-size: 14px;
+        }
+        select:focus, input:focus {
+            outline: none;
+            border-color: #00d4ff;
+        }
+        .row {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 16px;
+        }
+        .checkbox-group {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .checkbox-group input[type="checkbox"] {
+            width: 20px;
+            height: 20px;
+            cursor: pointer;
+        }
+        .btn {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-weight: 600;
+        }
+        .btn-primary {
+            background: linear-gradient(135deg, #00d4ff, #0099cc);
+            color: #fff;
+        }
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(0, 212, 255, 0.4);
+        }
+        .btn-primary:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+        .btn-secondary {
+            background: rgba(255, 255, 255, 0.1);
+            color: #fff;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+        .btn-secondary:hover {
+            background: rgba(255, 255, 255, 0.2);
+        }
+        .btn-streaming {
+            background: linear-gradient(135deg, #ff6b6b, #ee5a5a);
+            color: #fff;
+        }
+        .btn-streaming:hover {
+            box-shadow: 0 5px 20px rgba(255, 107, 107, 0.4);
+        }
+        .btn-group {
+            display: flex;
+            gap: 12px;
+            margin-top: 16px;
+            flex-wrap: wrap;
+        }
+        .status {
+            padding: 12px;
+            border-radius: 8px;
+            margin-top: 16px;
+        }
+        .status.info {
+            background: rgba(0, 212, 255, 0.1);
+            border: 1px solid rgba(0, 212, 255, 0.3);
+        }
+        .status.error {
+            background: rgba(255, 82, 82, 0.1);
+            border: 1px solid rgba(255, 82, 82, 0.3);
+            color: #ff5252;
+        }
+        .status.success {
+            background: rgba(76, 175, 80, 0.1);
+            border: 1px solid rgba(76, 175, 80, 0.3);
+            color: #4caf50;
+        }
+        .audio-player {
+            margin-top: 16px;
+        }
+        audio {
+            width: 100%;
+            margin-top: 8px;
+        }
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            border-top-color: #00d4ff;
+            animation: spin 1s ease-in-out infinite;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        .hidden {
+            display: none;
+        }
+        .info-text {
+            font-size: 12px;
+            color: #888;
+            margin-top: 4px;
+        }
+        .api-info {
+            font-family: monospace;
+            background: rgba(0, 0, 0, 0.3);
+            padding: 12px;
+            border-radius: 8px;
+            font-size: 13px;
+            overflow-x: auto;
+        }
+        .api-info code {
+            color: #00d4ff;
+        }
+        .streaming-indicator {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 16px;
+            background: rgba(255, 107, 107, 0.2);
+            border-radius: 20px;
+            font-size: 14px;
+            color: #ff6b6b;
+        }
+        .streaming-indicator .dot {
+            width: 8px;
+            height: 8px;
+            background: #ff6b6b;
+            border-radius: 50%;
+            animation: pulse 1s ease-in-out infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.3; }
+        }
+        .mode-switch {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 16px;
+        }
+        .mode-btn {
+            padding: 8px 16px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 8px;
+            background: transparent;
+            color: #aaa;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        .mode-btn.active {
+            background: rgba(0, 212, 255, 0.2);
+            border-color: #00d4ff;
+            color: #00d4ff;
+        }
+        .mode-btn:hover {
+            border-color: #00d4ff;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎵 Qwen3-TTS WebUI</h1>
+
+        <div class="card">
+            <h2>📝 文本输入</h2>
+            <div class="form-group">
+                <label for="text">输入要合成的文本：</label>
+                <textarea id="text" placeholder="请输入要转换的文本...">你好，这是一个测试。</textarea>
+            </div>
+            <div class="form-group">
+                <label for="instruction">指令风格 (可选)：</label>
+                <input type="text" id="instruction" placeholder="例如: Happy, Sad, Excited, Calm...">
+                <div class="info-text">添加情感风格指令，留空则无</div>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>⚙️ 参数设置</h2>
+            <div class="row">
+                <div class="form-group">
+                    <label for="speaker">说话人</label>
+                    <select id="speaker"></select>
+                </div>
+                <div class="form-group">
+                    <label for="temperature">Temperature</label>
+                    <input type="number" id="temperature" value="0.9" min="0" max="2" step="0.1">
+                    <div class="info-text">越高越随机，0 为贪婪采样</div>
+                </div>
+                <div class="form-group">
+                    <label for="top_k">Top-K</label>
+                    <input type="number" id="top_k" value="50" min="0" max="100" step="1">
+                    <div class="info-text">0 表示禁用</div>
+                </div>
+                <div class="form-group">
+                    <label for="top_p">Top-P</label>
+                    <input type="number" id="top_p" value="1.0" min="0" max="1" step="0.05">
+                    <div class="info-text">1.0 表示禁用</div>
+                </div>
+            </div>
+            <div class="row">
+                <div class="form-group">
+                    <label for="seed">随机种子</label>
+                    <input type="number" id="seed" placeholder="留空为随机">
+                    <div class="info-text">相同种子产生相同结果</div>
+                </div>
+                <div class="form-group">
+                    <label for="maxSteps">最大步数</label>
+                    <input type="number" id="maxSteps" value="512" min="64" max="2048" step="64">
+                    <div class="info-text">生成最大 token 数</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>🎵 生成音频</h2>
+            <div class="mode-switch">
+                <button class="mode-btn active" id="modeNormal" onclick="setMode('normal')">普通模式</button>
+                <button class="mode-btn" id="modeStream" onclick="setMode('stream')">流式播放</button>
+            </div>
+            <div class="btn-group">
+                <button class="btn btn-primary" id="generateBtn" onclick="generateTTS()">
+                    生成音频
+                </button>
+                <button class="btn btn-streaming hidden" id="streamBtn" onclick="startStreaming()">
+                    🎧 流式播放
+                </button>
+                <button class="btn btn-secondary" id="stopBtn" onclick="stopGeneration()" disabled>
+                    停止
+                </button>
+            </div>
+            <div id="streamingStatus" class="hidden" style="margin-top: 16px;">
+                <div class="streaming-indicator">
+                    <span class="dot"></span>
+                    <span>正在流式播放...</span>
+                </div>
+                <div id="sendProgress" style="margin-top: 12px; padding: 12px; background: rgba(255,255,255,0.05); border-radius: 8px; font-family: monospace; font-size: 14px; line-height: 1.6;">
+                    <div style="color: #888; margin-bottom: 8px;">发送进度：</div>
+                    <div id="sentText" style="color: #4ecdc4; word-break: break-all;"></div>
+                    <div id="pendingText" style="color: #666; word-break: break-all;"></div>
+                </div>
+            </div>
+            <div id="status" class="status info hidden"></div>
+            <div id="audioContainer" class="audio-player hidden">
+                <audio id="audioPlayer" controls></audio>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>📖 API 使用说明</h2>
+            <div class="api-info">
+                <p><strong>HTTP API (非流式):</strong></p>
+                <p>POST <code>/api/tts</code></p>
+                <p>Body: <code>{"text": "你好", "speaker": "vivian"}</code></p>
+                <br>
+                <p><strong>WebSocket API (流式):</strong></p>
+                <p>Connect to <code>/api/tts/stream</code></p>
+                <p>Send: <code>{"text": "你好", "speaker": "vivian"}</code></p>
+                <p>Receive: Binary audio data (f32 PCM, 24kHz)</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentController = null;
+        let ws = null;
+        let audioContext = null;
+        let audioWorkletNode = null;
+        let isStreaming = false;
+        let currentMode = 'normal';
+
+        async function loadSpeakers() {
+            try {
+                const response = await fetch('/api/speakers');
+                const data = await response.json();
+                const select = document.getElementById('speaker');
+                select.innerHTML = '';
+                data.speakers.forEach(name => {
+                    const option = document.createElement('option');
+                    option.value = name;
+                    option.textContent = name;
+                    select.appendChild(option);
+                });
+            } catch (e) {
+                console.error('Failed to load speakers:', e);
+            }
+        }
+
+        function setMode(mode) {
+            currentMode = mode;
+            document.getElementById('modeNormal').classList.toggle('active', mode === 'normal');
+            document.getElementById('modeStream').classList.toggle('active', mode === 'stream');
+            document.getElementById('generateBtn').classList.toggle('hidden', mode === 'stream');
+            document.getElementById('streamBtn').classList.toggle('hidden', mode === 'normal');
+        }
+
+        function showStatus(message, type = 'info') {
+            const status = document.getElementById('status');
+            status.textContent = message;
+            status.className = `status ${type}`;
+            status.classList.remove('hidden');
+        }
+
+        function hideStatus() {
+            document.getElementById('status').classList.add('hidden');
+        }
+
+        function setGenerating(isGenerating) {
+            const generateBtn = document.getElementById('generateBtn');
+            const streamBtn = document.getElementById('streamBtn');
+            const stopBtn = document.getElementById('stopBtn');
+            generateBtn.disabled = isGenerating;
+            streamBtn.disabled = isGenerating;
+            stopBtn.disabled = !isGenerating;
+            if (isGenerating) {
+                generateBtn.innerHTML = '<span class="loading"></span> 生成中...';
+                streamBtn.innerHTML = '<span class="loading"></span> 连接中...';
+            } else {
+                generateBtn.innerHTML = '生成音频';
+                streamBtn.innerHTML = '🎧 流式播放';
+            }
+        }
+
+        async function generateTTS() {
+            const text = document.getElementById('text').value.trim();
+            if (!text) {
+                showStatus('请输入文本', 'error');
+                return;
+            }
+
+            const speaker = document.getElementById('speaker').value;
+            const temperature = parseFloat(document.getElementById('temperature').value) || 0.9;
+            const top_k = parseInt(document.getElementById('top_k').value) || 50;
+            const top_p = parseFloat(document.getElementById('top_p').value) || 1.0;
+            const seed = document.getElementById('seed').value ? parseInt(document.getElementById('seed').value) : null;
+            const maxSteps = parseInt(document.getElementById('maxSteps').value) || 512;
+            const instruction = document.getElementById('instruction').value.trim() || null;
+
+            setGenerating(true);
+            showStatus('正在生成音频...', 'info');
+            document.getElementById('audioContainer').classList.add('hidden');
+
+            currentController = new AbortController();
+
+            try {
+                const response = await fetch('/api/tts', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        text,
+                        speaker,
+                        temperature,
+                        top_k,
+                        top_p,
+                        seed,
+                        max_steps: maxSteps,
+                        instruction,
+                    }),
+                    signal: currentController.signal,
+                });
+
+                const data = await response.json();
+
+                if (data.success && data.audio_base64) {
+                    const audioData = Uint8Array.from(atob(data.audio_base64), c => c.charCodeAt(0));
+                    const blob = new Blob([audioData], { type: 'audio/wav' });
+                    const url = URL.createObjectURL(blob);
+                    const audioPlayer = document.getElementById('audioPlayer');
+                    audioPlayer.src = url;
+                    document.getElementById('audioContainer').classList.remove('hidden');
+                    showStatus(`生成成功！时长: ${(data.duration_ms / 1000).toFixed(2)}秒`, 'success');
+                } else {
+                    showStatus(data.message || '生成失败', 'error');
+                }
+            } catch (e) {
+                if (e.name === 'AbortError') {
+                    showStatus('已停止生成', 'info');
+                } else {
+                    showStatus(`错误: ${e.message}`, 'error');
+                }
+            } finally {
+                setGenerating(false);
+                currentController = null;
+            }
+        }
+
+        async function startStreaming() {
+            const text = document.getElementById('text').value.trim();
+            if (!text) {
+                showStatus('请输入文本', 'error');
+                return;
+            }
+
+            const speaker = document.getElementById('speaker').value;
+            const temperature = parseFloat(document.getElementById('temperature').value) || 0.9;
+            const top_k = parseInt(document.getElementById('top_k').value) || 50;
+            const top_p = parseFloat(document.getElementById('top_p').value) || 1.0;
+            const seed = document.getElementById('seed').value ? parseInt(document.getElementById('seed').value) : null;
+            const instruction = document.getElementById('instruction').value.trim() || null;
+
+            setGenerating(true);
+            document.getElementById('streamingStatus').classList.remove('hidden');
+            document.getElementById('audioContainer').classList.add('hidden');
+            hideStatus();
+
+            try {
+                // 创建 AudioContext（需要用户交互后才能播放）
+                audioContext = new (window.AudioContext || window.webkitAudioContext)({
+                    sampleRate: 24000
+                });
+                
+                // 确保 AudioContext 是运行状态
+                if (audioContext.state === 'suspended') {
+                    await audioContext.resume();
+                }
+                
+                await audioContext.audioWorklet.addModule('/audio-processor.js?v=2');
+                audioWorkletNode = new AudioWorkletNode(audioContext, 'audio-processor');
+                audioWorkletNode.connect(audioContext.destination);
+
+                // 监听 AudioWorklet 消息
+                audioWorkletNode.port.onmessage = (event) => {
+                    if (event.data.type === 'prebuffer_ready') {
+                        console.log(`Pre-buffer ready: ${event.data.available} samples (${(event.data.available / 24000).toFixed(2)}s)`);
+                        showStatus(`预缓存就绪，开始播放...`, 'info');
+                    } else if (event.data.type === 'buffer_status') {
+                        const bufferMs = (event.data.available / 24000 * 1000).toFixed(0);
+                        console.log(`Buffer: ${event.data.available} samples (${bufferMs}ms), playing: ${event.data.isPlaying}, draining: ${event.data.isDraining}, drainRequested: ${event.data.drainRequested}, received: ${event.data.totalReceived}, played: ${event.data.totalPlayed}`);
+                    } else if (event.data.type === 'drain_started') {
+                        console.log(`Drain started: available=${event.data.available}, received=${event.data.totalReceived}, played=${event.data.totalPlayed}`);
+                    } else if (event.data.type === 'buffer_drained') {
+                        console.log(`Buffer drained: played ${event.data.played}, received ${event.data.received}`);
+                        if (isStreaming) {
+                            stopStreaming();
+                            showStatus('流式播放完成', 'success');
+                        }
+                    }
+                };
+
+                const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+                ws = new WebSocket(`${protocol}//${window.location.host}/api/tts/stream`);
+
+                ws.binaryType = 'arraybuffer';
+
+                // 一次性发送所有文本
+                document.getElementById('sentText').textContent = text;
+                document.getElementById('pendingText').textContent = '';
+
+                ws.onopen = () => {
+                    // 一次性发送所有文本
+                    ws.send(JSON.stringify({
+                        text: text,
+                        speaker,
+                        temperature,
+                        top_k,
+                        top_p,
+                        seed,
+                        instruction,
+                    }));
+                    // 发送结束信号
+                    ws.send('end');
+                };
+
+                ws.onmessage = (event) => {
+                    if (event.data instanceof ArrayBuffer) {
+                        // 音频数据
+                        const float32Data = new Float32Array(event.data);
+                        console.log('Received audio data:', float32Data.length, 'samples');
+                        audioWorkletNode.port.postMessage(float32Data);
+                    } else if (event.data === 'segment_done') {
+                        // 段完成信号
+                        console.log('Segment done');
+                    } else if (event.data === 'done') {
+                        // 服务端确认结束，通知 AudioWorklet 开始排空
+                        console.log('All done, notifying AudioWorklet to drain...');
+                        ws.close();
+                        ws = null;
+                        // 通知 AudioWorklet 开始排空缓冲区
+                        if (audioWorkletNode) {
+                            audioWorkletNode.port.postMessage('drain');
+                        }
+                    } else {
+                        try {
+                            const data = JSON.parse(event.data);
+                            if (data.error) {
+                                showStatus(`错误: ${data.error}`, 'error');
+                                stopStreaming();
+                            }
+                        } catch (e) {}
+                    }
+                };
+
+                ws.onerror = (error) => {
+                    showStatus('WebSocket 连接错误', 'error');
+                    stopStreaming();
+                };
+
+                ws.onclose = () => {
+                    // WebSocket 关闭时不立即停止播放
+                    // 让 AudioWorklet 继续播放缓冲区中的音频
+                    console.log('WebSocket closed, letting buffer drain...');
+                };
+
+                isStreaming = true;
+
+            } catch (e) {
+                showStatus(`错误: ${e.message}`, 'error');
+                stopStreaming();
+            }
+        }
+
+        function stopStreaming() {
+            isStreaming = false;
+            
+            if (ws) {
+                ws.close();
+                ws = null;
+            }
+            
+            if (audioWorkletNode) {
+                audioWorkletNode.port.postMessage('reset');
+                audioWorkletNode.disconnect();
+                audioWorkletNode = null;
+            }
+            
+            if (audioContext) {
+                audioContext.close();
+                audioContext = null;
+            }
+            
+            document.getElementById('streamingStatus').classList.add('hidden');
+            document.getElementById('sentText').textContent = '';
+            document.getElementById('pendingText').textContent = '';
+            setGenerating(false);
+        }
+
+        function stopGeneration() {
+            if (currentController) {
+                currentController.abort();
+            }
+            if (isStreaming) {
+                stopStreaming();
+            }
+        }
+
+        // Initialize
+        loadSpeakers();
+    </script>
+</body>
+</html>

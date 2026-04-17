@@ -40,6 +40,25 @@ impl AudioSample {
         Ok(())
     }
 
+    pub fn to_wav_bytes(&self) -> Vec<u8> {
+        let spec = hound::WavSpec {
+            channels: self.channels,
+            sample_rate: self.sample_rate,
+            bits_per_sample: 16,
+            sample_format: hound::SampleFormat::Int,
+        };
+        let mut cursor = std::io::Cursor::new(Vec::new());
+        {
+            let mut writer = hound::WavWriter::new(&mut cursor, spec).unwrap();
+            for &sample in &self.samples {
+                let amp = (sample * 32767.0).clamp(-32768.0, 32767.0) as i16;
+                writer.write_sample(amp).unwrap();
+            }
+            writer.finalize().unwrap();
+        }
+        cursor.into_inner()
+    }
+
     pub fn duration(&self) -> f32 {
         self.samples.len() as f32 / self.sample_rate as f32
     }
