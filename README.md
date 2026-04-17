@@ -26,9 +26,9 @@
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | **CUDA** | Q5_K_M | **0.553** | 1162.6 | 2.19 | OK |
 | **Vulkan** | Q5_K_M | 0.598 | 1285.4 | 2.19 | OK |
+| **CPU** | Q5_K_M | 1.677 | 2823.4 | 1.96 | OK |
 | **CUDA** | Q8_0 | 0.640 | 1523.4 | 2.44 | OK |
 | **Vulkan** | Q8_0 | 0.638 | 1502.0 | 2.44 | OK |
-| **CPU** | Q5_K_M | 1.677 | 2823.4 | 1.96 | OK |
 | **CPU** | Q8_0 | 1.866 | 4160.1 | 2.51 | OK |
 
 - **测试环境**: Intel Core i9-13980HX, NVIDIA RTX 2080 Ti. 显存占用约 0.7-1.5GB.
@@ -121,24 +121,24 @@ use qwen3_tts::{TtsEngine, VoiceFile, SamplerConfig};
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 1. 初始化引擎
     let mut engine = TtsEngine::new("models", "none").await?;
-    
+
     // 2. 配置采样参数 (可选)
     let sampler_config = SamplerConfig::new(0.7, 40, 0.9, None);
     engine.set_sampler_config(sampler_config);
-    
+
     // 3. 加载音色
     let voice = VoiceFile::load("speakers/sohee.json")?;
-    
+
     // 4. 生成语音
     let audio = engine.generate_with_voice(
         "你好，欢迎使用 Qwen3-TTS！",
         &voice,
         None,  // instruction
     )?;
-    
+
     // 5. 保存音频
     audio.save_wav("output.wav")?;
-    
+
     Ok(())
 }
 ```
@@ -151,20 +151,20 @@ use qwen3_tts::TtsEngine;
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut engine = TtsEngine::new("models", "none").await?;
-    
+
     // 从参考音频提取音色
     let voice = engine.create_voice_file(
         "reference.wav",
         "参考音频对应的文本".to_string(),
     )?;
-    
+
     // 保存音色文件
     voice.save("speakers/my_voice.json")?;
-    
+
     // 使用新音色生成
     let audio = engine.generate_with_voice("测试新音色", &voice, None)?;
     audio.save_wav("output.wav")?;
-    
+
     Ok(())
 }
 ```
